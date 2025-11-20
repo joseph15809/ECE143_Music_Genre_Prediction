@@ -5,8 +5,10 @@ predict_weekly.py
 - Forecast final weeks (default next 20 weeks)
 - Forecast both counts and average ranks per genre
 - Per-model top-5 predicted genres
+- Plots predicted vs actual for each genre and model
 """
 
+import os
 import warnings
 import logging
 from statsmodels.tools.sm_exceptions import ConvergenceWarning
@@ -47,14 +49,13 @@ def load_dataset(path="dummy.csv"):
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"])
     df["week"] = df["date"].dt.to_period('W').apply(lambda r: r.start_time)
-    # df.to_csv("billboard_cleaned_with_weekly.csv", index=False)
     log(f"Loaded {len(df)} rows, weeks {df['week'].min()}-{df['week'].max()}")
     return df
 
 def build_genre_week_counts(df):
     grouped = df.groupby(["week","genre"]).agg(
         count=("genre","size"),
-        avg_rank=("rank","mean")  # Assuming a 'rank' column exists
+        avg_rank=("rank","mean")
     ).reset_index().sort_values(["genre","week"])
     log(f"Aggregated to {len(grouped)} (week, genre) rows")
     return grouped
@@ -82,14 +83,9 @@ def compute_rmse(y_true, y_pred):
 # Time series helpers
 # ---------------------------
 def series_from_weeks(weeks, values):
-    ts = pd.Series(data=values, index=pd.to_datetime(weeks))
-    ts = ts.sort_index()
-    # full weekly range
+    ts = pd.Series(data=values, index=pd.to_datetime(weeks)).sort_index()
     full_weeks = pd.date_range(start=ts.index.min(), end=ts.index.max(), freq='W-MON')
-    ts_full = ts.reindex(full_weeks, fill_value=0)
-    missing_weeks = ts_full[ts_full==0].index.difference(ts.index)
-    if len(missing_weeks) > 0:
-        log(f"[DEBUG] {len(missing_weeks)} missing weeks filled with 0:\n {missing_weeks}")
+    ts_full = ts.reindex(full_weeks).interpolate(method='linear')
     return ts_full
 
 # ---------------------------
@@ -97,11 +93,15 @@ def series_from_weeks(weeks, values):
 # ---------------------------
 def predict_exp(ts_series, steps):
     try:
-        model = ExponentialSmoothing(ts_series, trend="add", seasonal=None, initialization_method="estimated")
+        model = ExponentialSmoothing(ts_series,
+                                     trend="add",
+                                     seasonal="add",
+                                     seasonal_periods=52,
+                                     initialization_method="estimated")
         fit = model.fit()
         return np.asarray(fit.forecast(steps))
     except Exception as e:
-        log(f"    [ExpS] failed: {e}")
+        log(f"[ExpS] failed: {e}")
         return np.repeat(ts_series.iloc[-1], steps)
 
 def predict_arima(ts_series, steps):
@@ -113,22 +113,24 @@ def predict_arima(ts_series, steps):
         end = start + steps - 1
         return np.asarray(fit.predict(start=start, end=end))
     except Exception as e:
-        log(f"    [ARIMA] failed: {e}")
+        log(f"[ARIMA] failed: {e}")
         return np.repeat(ts_series.iloc[-1], steps)
 
 def predict_prophet(ts_series, steps):
     try:
         dfp = pd.DataFrame({"ds": ts_series.index, "y": ts_series.values})
-        m = Prophet(yearly_seasonality=False, daily_seasonality=False, weekly_seasonality=True)
+        m = Prophet(weekly_seasonality=True, yearly_seasonality=True, daily_seasonality=False)
         m.fit(dfp)
         future = m.make_future_dataframe(periods=steps, freq="W-MON")
         forecast = m.predict(future)
         return np.asarray(forecast["yhat"].tail(steps).values)
     except Exception as e:
-        log(f"    [Prophet] failed: {e}")
+        log(f"[Prophet] failed: {e}")
         return np.repeat(ts_series.iloc[-1], steps)
 
+# ---------------------------
 # PyTorch LSTM
+# ---------------------------
 class LSTMModel(nn.Module):
     def __init__(self, input_size=1, hidden_size=32, num_layers=1):
         super().__init__()
@@ -138,13 +140,13 @@ class LSTMModel(nn.Module):
         out,_ = self.lstm(x)
         return self.fc(out[:, -1, :])
 
-def lstm_forecast_pytorch(ts_series, steps, window=4, epochs=200, lr=0.01):
+def lstm_forecast_pytorch(ts_series, steps, window=8, epochs=400, lr=0.0075):
     vals = np.asarray(ts_series.values, dtype=float)
     if len(vals) <= window:
         return np.repeat(vals[-1], steps)
-    minv, maxv = vals.min(), vals.max()
-    scaled = (vals-minv)/(maxv-minv) if maxv-minv>1e-8 else np.zeros_like(vals)
-    X,Y = [],[]
+    meanv, stdv = vals.mean(), vals.std()
+    scaled = (vals - meanv)/(stdv+1e-8)
+    X,Y=[],[]
     for i in range(len(scaled)-window):
         X.append(scaled[i:i+window])
         Y.append(scaled[i+window])
@@ -152,7 +154,7 @@ def lstm_forecast_pytorch(ts_series, steps, window=4, epochs=200, lr=0.01):
     Y = np.array(Y).reshape(-1,1).astype(np.float32)
 
     device = torch.device("cpu")
-    model = LSTMModel().to(device)
+    model = LSTMModel(input_size=1, hidden_size=32, num_layers=1).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = nn.MSELoss()
     X_t = torch.from_numpy(X).to(device)
@@ -162,13 +164,13 @@ def lstm_forecast_pytorch(ts_series, steps, window=4, epochs=200, lr=0.01):
     for ep in range(epochs):
         optimizer.zero_grad()
         out = model(X_t)
-        loss = loss_fn(out, Y_t)
+        loss = loss_fn(out,Y_t)
         loss.backward()
         optimizer.step()
 
     model.eval()
     recent = scaled[-window:].tolist()
-    preds_scaled = []
+    preds_scaled=[]
     for _ in range(steps):
         x_in = np.array(recent[-window:]).reshape(1,window,1).astype(np.float32)
         x_t = torch.from_numpy(x_in).to(device)
@@ -177,13 +179,43 @@ def lstm_forecast_pytorch(ts_series, steps, window=4, epochs=200, lr=0.01):
         preds_scaled.append(p)
         recent.append(p)
     preds = np.array(preds_scaled)
-    preds_inv = preds*(maxv-minv)+minv if maxv-minv>1e-8 else np.repeat(vals[-1], steps)
-    return preds_inv
+    return preds*stdv + meanv
 
 # ---------------------------
-# Evaluate validation
+# Plots: predicted vs actual (all models)
 # ---------------------------
-def evaluate_models(train_df, valid_df):
+def plot_pred_vs_actual_all_models(ts_actual, ts_train, genre, preds_dict, target="Count", steps=None, outpath="plots"):
+    """
+    ts_actual: pd.Series of actual values
+    ts_train: pd.Series of training series (for x-axis alignment)
+    preds_dict: dict of {model_name: predictions array}, already computed
+    """
+    os.makedirs(outpath, exist_ok=True)
+    if steps is None:
+        steps = len(ts_actual)
+
+    plt.figure(figsize=(10,5))
+    plt.plot(ts_actual.index, ts_actual.values, marker='o', color='black', label="Actual")
+    colors = ["red", "blue", "green", "orange"]
+    for i, (model, preds) in enumerate(preds_dict.items()):
+        plt.plot(ts_actual.index, preds, marker='x', color=colors[i], label=f"Predicted {model}")
+
+    plt.title(f"{genre} - {target} | Actual vs Predicted (All Models)")
+    plt.xlabel("Week")
+    plt.ylabel(target)
+    plt.xticks(rotation=45)
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.legend()
+    plt.tight_layout()
+    file_name = f"{outpath}/{genre}_{target}_pred_vs_all_models.png".replace(" ","_")
+    plt.savefig(file_name)
+    plt.close()
+    log(f"[DEBUG] Saved combined plot: {file_name}")
+
+# ---------------------------
+# Evaluate validation with plots
+# ---------------------------
+def evaluate_models(train_df, valid_df, plot_dir="plots"):
     genres = sorted(train_df["genre"].unique())
     log(f"Evaluating {len(genres)} genres using RMSE")
     records=[]
@@ -193,23 +225,45 @@ def evaluate_models(train_df, valid_df):
         if len(va)==0:
             log(f"  [SKIP] no validation data for {genre}")
             continue
+
         ts_train_count = series_from_weeks(tr["week"].values, tr["count"].values)
         ts_valid_count = series_from_weeks(va["week"].values, va["count"].values)
         ts_train_rank  = series_from_weeks(tr["week"].values, tr["avg_rank"].values)
         ts_valid_rank  = series_from_weeks(va["week"].values, va["avg_rank"].values)
         steps = len(ts_valid_count)
 
-        rmse_exp_c = compute_rmse(ts_valid_count.values, predict_exp(ts_train_count, steps))
-        rmse_arima_c = compute_rmse(ts_valid_count.values, predict_arima(ts_train_count, steps))
-        rmse_prop_c = compute_rmse(ts_valid_count.values, predict_prophet(ts_train_count, steps))
-        rmse_lstm_c = compute_rmse(ts_valid_count.values, lstm_forecast_pytorch(ts_train_count, steps))
+        # Get predictions for all models
+        preds_count_dict = {
+            "ExpS": predict_exp(ts_train_count, steps),
+            "ARIMA": predict_arima(ts_train_count, steps),
+            "Prophet": predict_prophet(ts_train_count, steps),
+            "LSTM": lstm_forecast_pytorch(ts_train_count, steps)
+        }
+        log(f"Genre: {genre}: Done Count Predictions")
+        preds_rank_dict = {
+            "ExpS": predict_exp(ts_train_rank, steps),
+            "ARIMA": predict_arima(ts_train_rank, steps),
+            "Prophet": predict_prophet(ts_train_rank, steps),
+            "LSTM": lstm_forecast_pytorch(ts_train_rank, steps)
+        }
+        log(f"Genre: {genre}: Done Rank Predictions")
 
-        rmse_exp_r = compute_rmse(ts_valid_rank.values, predict_exp(ts_train_rank, steps))
-        rmse_arima_r = compute_rmse(ts_valid_rank.values, predict_arima(ts_train_rank, steps))
-        rmse_prop_r = compute_rmse(ts_valid_rank.values, predict_prophet(ts_train_rank, steps))
-        rmse_lstm_r = compute_rmse(ts_valid_rank.values, lstm_forecast_pytorch(ts_train_rank, steps))
+        # Compute RMSE
+        rmse_exp_c = compute_rmse(ts_valid_count.values, preds_count_dict["ExpS"])
+        rmse_arima_c = compute_rmse(ts_valid_count.values, preds_count_dict["ARIMA"])
+        rmse_prop_c = compute_rmse(ts_valid_count.values, preds_count_dict["Prophet"])
+        rmse_lstm_c = compute_rmse(ts_valid_count.values, preds_count_dict["LSTM"])
 
-        log(f"  {genre}: Count RMSE [ExpS:{rmse_exp_c:.2f}, ARIMA:{rmse_arima_c:.2f}, Prophet:{rmse_prop_c:.2f}, LSTM:{rmse_lstm_c:.2f}], "
+        rmse_exp_r = compute_rmse(ts_valid_rank.values, preds_rank_dict["ExpS"])
+        rmse_arima_r = compute_rmse(ts_valid_rank.values, preds_rank_dict["ARIMA"])
+        rmse_prop_r = compute_rmse(ts_valid_rank.values, preds_rank_dict["Prophet"])
+        rmse_lstm_r = compute_rmse(ts_valid_rank.values, preds_rank_dict["LSTM"])
+
+        # --- Combined predicted vs actual plots ---
+        plot_pred_vs_actual_all_models(ts_valid_count, ts_train_count, genre, preds_count_dict, target="Count", steps=steps, outpath=plot_dir)
+        plot_pred_vs_actual_all_models(ts_valid_rank, ts_train_rank, genre, preds_rank_dict, target="Rank", steps=steps, outpath=plot_dir)
+
+        log(f"Genre: {genre}: Count RMSE [ExpS:{rmse_exp_c:.2f}, ARIMA:{rmse_arima_c:.2f}, Prophet:{rmse_prop_c:.2f}, LSTM:{rmse_lstm_c:.2f}], "
             f"Rank RMSE [ExpS:{rmse_exp_r:.2f}, ARIMA:{rmse_arima_r:.2f}, Prophet:{rmse_prop_r:.2f}, LSTM:{rmse_lstm_r:.2f}]")
 
         records.append({
@@ -278,7 +332,7 @@ def top5_per_model(pred_df, target="Count"):
     return top5_dict
 
 # ---------------------------
-# Plot helper
+# Trend plots
 # ---------------------------
 def plot_trend_per_model(pred_df, outpath="trend_per_model.png"):
     # Count plot
@@ -318,7 +372,7 @@ def main(forecast_weeks=20, validation_weeks=52):
     grouped = build_genre_week_counts(df)
     train_df, valid_df = train_valid_split(grouped, valid_weeks=validation_weeks)
 
-    log("\n=== Validation using RMSE ===")
+    log("\n=== Validation using RMSE and Predicted vs Actual Plots ===")
     metrics_df = evaluate_models(train_df, valid_df)
     if not metrics_df.empty:
         print(metrics_df.to_string(index=False))
