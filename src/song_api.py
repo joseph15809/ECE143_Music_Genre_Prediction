@@ -79,12 +79,6 @@ def clean_song(song: str) -> str:
     s = re.sub(r'\s*\(.*?\)', '', s)
     return s
 
-def _strip_paren_noise(song: str) -> str:
-    # remove extras like (From "..."), (Remastered 2011), [Remix], - Single
-    s = song.strip()
-    s = re.sub(r'\s*\(.*?\)', '', s)
-    return s
-
 def primary_artist(artist: str) -> str:
     a = artist.strip()
     # split on clear multi-artist separators
@@ -94,10 +88,10 @@ def primary_artist(artist: str) -> str:
 
 def extract_song_info(csv_path: str, out_csv: str) -> dict:
     """
-    Reads the big Billboard CSV, builds unique (clean_song, clean_artist) keys,
+    Reads the Billboard CSV, builds unique (clean_song, clean_artist) keys,
     but keeps the first original title/artist for each key.
     """
-    session = requests.Session()
+    session = requests.Session()     
     limiter = RateLimiter(MAX_CALLS, WINDOW)
     mapping = {}  # (song_clean, artist_clean) -> (orig_song, orig_artist)
     chunksize = 200_000
