@@ -40,6 +40,9 @@ import matplotlib.pyplot as plt
 def log(msg: str):
     print(f"[DEBUG] {msg}")
 
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+log(f"Using device: {device}")
+
 # ---------------------------
 # Load & preprocess
 # ---------------------------
@@ -132,54 +135,87 @@ def predict_prophet(ts_series, steps):
 # PyTorch LSTM
 # ---------------------------
 class LSTMModel(nn.Module):
-    def __init__(self, input_size=1, hidden_size=32, num_layers=1):
+    def __init__(self, input_size=1, hidden_size=64, num_layers=1, dropout=0.2):
         super().__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size,1)
-    def forward(self,x):
-        out,_ = self.lstm(x)
+        self.lstm = nn.LSTM(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            batch_first=True,
+            dropout=dropout if num_layers > 1 else 0.0,
+        )
+        self.fc = nn.Linear(hidden_size, 1)
+
+    def forward(self, x):
+        out, _ = self.lstm(x)
         return self.fc(out[:, -1, :])
 
-def lstm_forecast_pytorch(ts_series, steps, window=8, epochs=400, lr=0.0075):
+# ------------------------------------------------------------------------------------------------------
+# LSTM Forecast Function
+# 
+def lstm_forecast_pytorch(
+    ts_series,
+    steps,
+    window=8,
+    epochs=400,
+    lr=0.005,
+    hidden_size=32,
+    weight_decay=1e-4,
+):
+
     vals = np.asarray(ts_series.values, dtype=float)
     if len(vals) <= window:
         return np.repeat(vals[-1], steps)
-    meanv, stdv = vals.mean(), vals.std()
-    scaled = (vals - meanv)/(stdv+1e-8)
-    X,Y=[],[]
-    for i in range(len(scaled)-window):
-        X.append(scaled[i:i+window])
-        Y.append(scaled[i+window])
-    X = np.array(X).reshape(-1,window,1).astype(np.float32)
-    Y = np.array(Y).reshape(-1,1).astype(np.float32)
 
-    device = torch.device("cpu")
-    model = LSTMModel(input_size=1, hidden_size=32, num_layers=1).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    loss_fn = nn.MSELoss()
+    # ---------------- Normalize ----------------
+    meanv, stdv = vals.mean(), vals.std()
+    scaled = (vals - meanv) / (stdv + 1e-8)
+
+    # ---------------- Build training samples ----------------
+    X, Y = [], []
+    for i in range(len(scaled) - window):
+        X.append(scaled[i:i + window])
+        Y.append(scaled[i + window])
+    X = np.array(X).reshape(-1, window, 1).astype(np.float32)
+    Y = np.array(Y).reshape(-1, 1).astype(np.float32)
+
     X_t = torch.from_numpy(X).to(device)
     Y_t = torch.from_numpy(Y).to(device)
+
+    # ---------------- Model ----------------
+    model = LSTMModel(
+        input_size=1,
+        hidden_size=hidden_size,
+        num_layers=2,
+        dropout=0.25
+    ).to(device)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    loss_fn = nn.MSELoss()
 
     model.train()
     for ep in range(epochs):
         optimizer.zero_grad()
         out = model(X_t)
-        loss = loss_fn(out,Y_t)
+        loss = loss_fn(out, Y_t)
         loss.backward()
         optimizer.step()
 
     model.eval()
+
+    # ---------------- Recursive Forecasting ----------------
     recent = scaled[-window:].tolist()
-    preds_scaled=[]
+    preds_scaled = []
+
     for _ in range(steps):
-        x_in = np.array(recent[-window:]).reshape(1,window,1).astype(np.float32)
+        x_in = np.array(recent[-window:]).reshape(1, window, 1).astype(np.float32)
         x_t = torch.from_numpy(x_in).to(device)
         with torch.no_grad():
             p = model(x_t).cpu().numpy().ravel()[0]
         preds_scaled.append(p)
         recent.append(p)
     preds = np.array(preds_scaled)
-    return preds*stdv + meanv
+    return preds * stdv + meanv
 
 # ---------------------------
 # Plots: predicted vs actual (all models)
@@ -210,7 +246,7 @@ def plot_pred_vs_actual_all_models(ts_actual, ts_train, genre, preds_dict, targe
     file_name = f"{outpath}/{genre}_{target}_pred_vs_all_models.png".replace(" ","_")
     plt.savefig(file_name)
     plt.close()
-    log(f"[DEBUG] Saved combined plot: {file_name}")
+    log(f"Saved combined plot: {file_name}")
 
 # ---------------------------
 # Evaluate validation with plots
@@ -362,7 +398,7 @@ def plot_trend_per_model(pred_df, outpath="trend_per_model.png"):
     plt.tight_layout()
     plt.savefig(outpath.replace(".png","_rank.png"))
     plt.close()
-    log(f"[DEBUG] Saved trend plots (count & rank) to {outpath.replace('.png','_count.png')} and {outpath.replace('.png','_rank.png')}")
+    log(f"Saved trend plots (count & rank) to {outpath.replace('.png','_count.png')} and {outpath.replace('.png','_rank.png')}")
 
 # ---------------------------
 # MAIN
