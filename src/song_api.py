@@ -8,6 +8,11 @@ bb100_file = "./data/ece143billboardhot1001958to2010.csv"
 unique_songs = "./data/unique_songs.csv"
 genres_csv = "./data/unique_song_artist_genres.csv"
 
+#2011 to 2021 songs with genres
+bb10to20 = "./data/ece143billboardhot100-2011to2021.csv"
+unique_11to21 = "./data/unique_11to21.csv"
+genres_11to21_csv = "./data/unique_song_genres_11to21.csv"
+
 # hard limit: 50 requests per 5 seconds
 MAX_CALLS = 50
 WINDOW = 5
@@ -96,7 +101,7 @@ def extract_song_info(csv_path: str, out_csv: str) -> dict:
     mapping = {}  # (song_clean, artist_clean) -> (orig_song, orig_artist)
     chunksize = 200_000
     usecols = ["song", "artist"]
-    for chunk in pd.read_csv(in_csv, usecols=usecols, chunksize=chunksize, low_memory=False):
+    for chunk in pd.read_csv(csv_path, usecols=usecols, chunksize=chunksize, low_memory=False):
         for orig_song, orig_artist in zip(chunk["song"], chunk["artist"]):
             orig_song = str(orig_song)
             orig_artist = str(orig_artist)
@@ -161,12 +166,15 @@ def fetch_genres(pairs, out_csv, flush_every=500):
     print(f"wrote {out_csv}")
 
 
-# load the unique pairs we just save
-#unique_df = pd.read_csv(unique_songs)
-#pairs = list(zip(unique_df["song_clean"], unique_df["artist_clean"]))
-#fetch_genres(pairs, genres_csv)
+#unique_df = extract_song_info(bb10to20, unique_11to21)
 
-songs_genres = pd.read_csv("./data/unique_song_artist_genres.csv")
+# load the unique pairs we just save
+#unique_df = pd.read_csv(unique_11to21)
+#pairs = list(zip(unique_df["song_clean"], unique_df["artist_clean"]))
+#fetch_genres(pairs, genres_11to21_csv)
+
+
+songs_genres = pd.read_csv("./data/unique_song_genres_11to21.csv")
 genres = list(songs_genres["genre"])
 genre_count = 0
 for g in genres:
