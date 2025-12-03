@@ -1,0 +1,57 @@
+# Music Genre Correlation Analysis 
+**Author**: Rachel Handran in Group 10 ECE 143
+
+## File Structure
+correlation_analysis/
+├── data/ # input datasets and computed CSVs
+├── fig/ # saved correlation heatmaps
+├── src/
+│ ├── correlation.py
+│ └── display_correlation_visualization.ipynb
+├── README_correlation.md
+
+## Goal:
+- Analyze correlations between music genres on Billboard Hot 100
+- Initial guiding question: Do certain music genres rise and fall together over time?
+- Actual question answered: Do certain music genres take chart share from each other over time?
+
+## Key Insight
+- Billboard always has 100 spots, so genres must "compete" for chart share, intriducing **structural negative correlation**
+- Musically *similar* genres compete, often leading to *negative* correlation
+- Genres with *differing* audience, OR *similar historic growth* may lead to positive correlation
+
+## Method
+- Determine Top N genres to analyze
+- Aggregate Billboard data by a period of Year or Week
+- Compute each genre's proportion of chart share for that period
+- Use Pearson Correlation on genre proportions
+- Visualize results using Clustered Heatmap
+
+## Notes on Interpretation
+- Strong correlation may be skewed by limited time data (i.e. Rap and Pop: -0.89, Rap nonemergence prior 1990 while pop continually present 1958-2021) 
+- Yearly Aggregation with Top 5 Genres chosen as most reliable (large datasets)
+answer the original question, we would likely need to run this analysis with weighted rank in consideration, rather than counts making up the whole billboard.
+urate data; as each week the billboard may only have <10 genres represented at a time
+
+## correlation.py
+- Runs correlation analysis on Billboard data (1958–2021)
+- Outputs correlation CSV and clustered heatmap
+
+## display_correlation_visualization.ipynb
+- Loads final CSV outputs
+- Displays visuals used in presentation
+
+## Third-Party Modules Used
+pandas, matplotlib, seaborn
+
+# List of Genres (22)
+Rap/Hip Hop,Pop, Films/Games, Alternative, R&B, Rock, Country, Dance, Electro, Christian, Asian Music, Jazz, Singer & Songwriter, Latin Music, Metal, Kids, Reggaeton, Reggae, Traditional Mexicano, Folk, Disco, Classical
+
+# Sources:
+Sources: https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.dropna.html
+https://en.wikipedia.org/wiki/ISO_week_date
+https://www.geeksforgeeks.org/pandas/python-pandas-dataframe-groupby/
+https://seaborn.pydata.org/generated/seaborn.clustermap.html
+https://www.youtube.com/watch?v=crQkHHhY7aY
+Utilized gen AI in assisting build matplot/seaborn custom visualizaiton
+https://articles.outlier.org/pearson-correlation-coefficient
