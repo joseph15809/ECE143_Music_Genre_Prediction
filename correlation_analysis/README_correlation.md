@@ -3,12 +3,18 @@
 
 ## File Structure
 correlation_analysis/
-├── data/ # input datasets and computed CSVs
-├── fig/ # saved correlation heatmaps
-├── src/
-│ ├── correlation.py
-│ └── display_correlation_visualization.ipynb
-├── README_correlation.md
+
+data/ # input datasets and computed CSVs
+
+fig/ # saved correlation heatmaps
+
+src/
+
+---correlation.py
+
+---display_correlation_visualization.ipynb
+
+README_correlation.md
 
 ## Goal:
 - Analyze correlations between music genres on Billboard Hot 100
@@ -44,8 +50,8 @@ urate data; as each week the billboard may only have <10 genres represented at a
 ## Third-Party Modules Used
 pandas, matplotlib, seaborn
 
-# List of Genres (22)
-Rap/Hip Hop,Pop, Films/Games, Alternative, R&B, Rock, Country, Dance, Electro, Christian, Asian Music, Jazz, Singer & Songwriter, Latin Music, Metal, Kids, Reggaeton, Reggae, Traditional Mexicano, Folk, Disco, Classical
+# List of Genres (28)
+Pop, Alternative, Rap/Hip Hop, Country, R&B, Dance, African Music, Traditional Mexicano, Reggaeton, Asian Music, Latin Music, Films/Games, Kids, Classical, Rock, Electro, Christian, Singer & Songwriter, Jazz, Folk, Brazilian Music, Reggae, Metal, Disco, Soul & Funk, Spirituality & Religion, Salsa, Oldschool R&B
 
 # Sources:
 Sources: https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.dropna.html
