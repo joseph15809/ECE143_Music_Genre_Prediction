@@ -2,18 +2,34 @@
 This project analyzes top-charting songs from the Billboard Hot 100 (1958–2010) by assigning each track a genre using the Deezer API. After enriching the dataset with genre information, we perform correlation analysis to identify relationships and trends between genres across different decades. Using these insights, we apply several time-series forecasting models to predict future genre popularity and evaluate which approach provides the most accurate long-term trend predictions
 
 ## File Structure
+- data/ # all csv files ares stored here
+    - BIG_DATA2.csv # billboard 100 dataset with genres
+    - ece143billboardhot100.csv # original datasets
+    - unique_songs.csv # extracted unqiue songs from dataset
+    - unique_song_artist_genres.csv # unqiue songs with genres
 
-correlation_analysis/
-    fig/ # saved correlation heatmaps
-    src/
-        -correlation.py
-        display_correlation_visualization.ipynb
+- fig/ # all saved figures
 
-data/ # all csv files ares stored here
-predit / 
+- predict/ # time predict folder
+
+- src/
+    - correlation.py # correlation analysis 
+    - song_api # extracts unique songs and get genre with deezer api
+
+- display_visualizations.ipynb
+    
 
 
 ### src/song_api
+
+
+## Running Code
+**src/song_api.py**
+```
+unique_df = pd.read_csv(unique_songs)
+pairs = list(zip(unique_df["song_clean"], unique_df["artist_clean"]))
+fetch_genres(pairs, genres_csv)
+``` 
 1. Extract unique songs
     - Reads the raw Billboard dataset
     - Cleans song titles and artist names
@@ -26,20 +42,9 @@ predit /
     - Enforces Deezer’s rate limit (50 requests / 5 seconds)
     - Saves the final mapped results to data/unique_song_artist_genres.csv
 
-### Data
- - ece143billboardhot1001958to2010.csv: Original Billboard 
- - unique_songs.csv: Extracted unique songs from billboard
- - unique_song_artist_genres.csv: Unique songs matched with Deezer genres
-
-## Running Code
-**src/song_api.py**
-```
-unique_df = pd.read_csv(unique_songs)
-pairs = list(zip(unique_df["song_clean"], unique_df["artist_clean"]))
-fetch_genres(pairs, genres_csv)
-``` 
 
 **src/correlation.py**
+
 `python src/correlation.py`
 
 **display_visualizations.ipynb**
@@ -77,6 +82,7 @@ urate data; as each week the billboard may only have <10 genres represented at a
 
 ## Third Party Modules
  - Pandas
+ - seaborn
  - Request
  - matplotlib
  - sklearn
