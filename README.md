@@ -3,6 +3,16 @@ This project analyzes top-charting songs from the Billboard Hot 100 (1958–2010
 
 ## File Structure
 
+correlation_analysis/
+    fig/ # saved correlation heatmaps
+    src/
+        -correlation.py
+        display_correlation_visualization.ipynb
+
+data/ # all csv files ares stored here
+predit / 
+
+
 ### src/song_api
 1. Extract unique songs
     - Reads the raw Billboard dataset

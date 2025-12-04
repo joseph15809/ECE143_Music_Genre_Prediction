@@ -17,7 +17,7 @@ genres_11to21_csv = "./data/unique_song_genres_11to21.csv"
 MAX_CALLS = 50
 WINDOW = 5
 
-
+music_brainz_api = f'https://musicbrainz.org/ws/2/recording/?query=recording:"{song_q}" AND artist:"{artist_q}"'
 
 class RateLimiter:
     def __init__(self, max_calls=MAX_CALLS, window=WINDOW):
